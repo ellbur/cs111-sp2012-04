@@ -5,93 +5,62 @@ import java.awt.event.*;
 import javax.swing.*;
 import java.awt.geom.*;
 
-/**
- * Really simple turtle-graphics.
- *
- * Example of use:
- * <pre>
- * Turtle t = new Turtle();
- * 
- * // Draw a square
- * t.draw(1);
- * t.turn(-90);
- * t.draw(1);
- * t.turn(-90);
- * t.draw(1);
- * t.turn(-90);
- * t.draw(1);
- *
- */
 public class Turtle {
 	
 	// ----------------------------------
 	// UI
 	
-	JFrame window;
+	static JFrame window;
 	
-	Image baseImage;
-	Image activeImage;
+	static int imageWidth  = 640;
+	static int imageHeight = 480;
+    static int minX = 0, minY = 0, maxX = imageWidth, maxY = imageHeight;
+    static int shiftX, shiftY;
 	
-	Graphics2D baseGraphics;
-	Graphics2D activeGraphics;
+	static Image baseImage;
+	static Image activeImage;
 	
-	JLabel imageLabel;
+	static Graphics2D baseGraphics;
+	static Graphics2D activeGraphics;
+	
+	static JLabel imageLabel;
 	
 	// ----------------------------------
 	// Parameters
 	
-	int width;
-	int height;
+	static Color backgroundColor = Color.white;
 	
-	Color backgroundColor = Color.white;
-	
-	Stroke turtleStroke = new BasicStroke(2);
+	static Stroke turtleStroke = new BasicStroke(2);
 	
 	// ----------------------------------
 	// State
 	
-	double x;
-	double y;
-	double theta;
+	static double x;
+	static double y;
+	static double theta;
 	
-	Color color;
-	Stroke lineStroke;
+	static Color color;
+	static Stroke lineStroke;
 	
-	double scale;
+	static double speed;
 	
-	double speed;
-	
-	double endX;
-	double endY;
+	static double endX;
+	static double endY;
+    
+    static Object lock = new Object();
+    static boolean inited;
 	
 	// -------------------------------------------------------------
 	
-	/**
-	 * Constructs a canvas that is 800x600 and displays the window.
-	 * 
-	 * When the window is closed the program will exit.
-	 */
-	public Turtle() {
-		this(800, 600);
-	}
-	
-	/**
-	 * Constructs a canvas that is _width x _height and displays the window.
-	 *
-	 * When the window is closed the program will exit.
-	 *
-	 * @param _width  The width of the drawing canvas.
-	 * @param _height The height of the drawing canvas.
-	 */
-	public Turtle(int _width, int _height) {
-		this.width  = _width;
-		this.height = _height;
-		
+    private static void init() {
+        if (inited) return;
+        inited = true;
+        
 		window = new JFrame("Turtle");
 		window.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		Container cp = window.getContentPane();
 		
-		imageLabel = new JLabel(new DummyIcon(width, height));
+		imageLabel = new JLabel(new DummyIcon(imageWidth, imageHeight));
 		
 		cp.add(imageLabel);
 		
@@ -101,8 +70,79 @@ public class Turtle {
 		makeImage();
 		
 		clear();
-	}
-	
+    }
+
+    private static void ensureAround(int nx, int ny) {
+        ensure(nx-10, ny-10);
+        ensure(nx-10, ny+10);
+        ensure(nx+10, ny-10);
+        ensure(nx+10, ny+10);
+    }
+    
+    private static void ensure(int nx, int ny) {
+        if (nx < minX) reduceMinX(nx);
+        if (nx > maxX) increaseMaxX(nx);
+        if (ny < minY) reduceMinY(ny);
+        if (ny > maxY) increaseMaxY(ny);
+        
+        if (nx < shiftX) shiftX = nx;
+        if (nx > imageWidth+shiftX) shiftX = nx - imageWidth;
+        if (ny < shiftY) shiftY = ny;
+        if (ny > imageHeight+shiftY) shiftY = ny - imageHeight;
+    }
+    
+    private static void reduceMinX(int nx) {
+        Image newImage = window.createImage(maxX-nx, maxY-minY);
+        Graphics2D newGraphics = (Graphics2D) newImage.getGraphics();
+        
+        newGraphics.setColor(Color.white);
+        newGraphics.fillRect(0, 0, maxX-nx, maxY-minY);
+        newGraphics.drawImage(baseImage, minX-nx, 0, null);
+        minX = nx;
+        
+        baseImage = newImage;
+        baseGraphics = newGraphics;
+    }
+    
+    private static void reduceMinY(int ny) {
+        Image newImage = window.createImage(maxX-minX, maxY-ny);
+        Graphics2D newGraphics = (Graphics2D) newImage.getGraphics();
+        
+        newGraphics.setColor(Color.white);
+        newGraphics.fillRect(0, 0, maxX-minX, maxY-ny);
+        newGraphics.drawImage(baseImage, 0, minY-ny, null);
+        minY = ny;
+        
+        baseImage = newImage;
+        baseGraphics = newGraphics;
+    }
+    
+    private static void increaseMaxX(int nx) {
+        Image newImage = window.createImage(nx-minX, maxY-minY);
+        Graphics2D newGraphics = (Graphics2D) newImage.getGraphics();
+        
+        newGraphics.setColor(Color.white);
+        newGraphics.fillRect(0, 0, nx-minX, maxY-minY);
+        newGraphics.drawImage(baseImage, 0, 0, null);
+        maxX = nx;
+        
+        baseImage = newImage;
+        baseGraphics = newGraphics;
+    }
+    
+    private static void increaseMaxY(int ny) {
+        Image newImage = window.createImage(maxX-minX, ny-minY);
+        Graphics2D newGraphics = (Graphics2D) newImage.getGraphics();
+        
+        newGraphics.setColor(Color.white);
+        newGraphics.fillRect(0, 0, maxX-minX, ny-minY);
+        newGraphics.drawImage(baseImage, 0, 0, null);
+        maxY = ny;
+        
+        baseImage = newImage;
+        baseGraphics = newGraphics;
+    }
+    
 	// -------------------------------------------------------------
 	
 	/**
@@ -112,10 +152,9 @@ public class Turtle {
 	 *
 	 * @param _speed The speed in pixels/second.
 	 */
-	public void setSpeed(double _speed) {
-		synchronized (this) {
-			this.speed = _speed;
-		}
+	public static void setSpeed(double _speed) {
+        init();
+        speed = _speed;
 	}
 	
 	/**
@@ -123,10 +162,9 @@ public class Turtle {
 	 *
 	 * @param _color The line color.
 	 */
-	public void setColor(Color _color) {
-		synchronized (this) {
-			this.color = _color;
-		}
+	public static void setColor(Color _color) {
+        init();
+        color = _color;
 	}
 	
 	/**
@@ -134,23 +172,9 @@ public class Turtle {
 	 *
 	 * @param thick The line thickness.
 	 */
-	public void setThickness(int thick) {
-		synchronized (this) {
-			this.lineStroke = new BasicStroke(thick);
-		}
-	}
-	
-	/**
-	 * Sets the pixels/inch.
-	 *
-	 * Defaults to 50 pixels/inch.
-	 *
-	 * @param _scale Pixels/inch.
-	 */
-	public void setScale(double _scale) {
-		synchronized (this) {
-			this.scale = _scale;
-		}
+	public static void setThickness(int thick) {
+        init();
+        lineStroke = new BasicStroke(thick);
 	}
 	
 	// -------------------------------------------------------------
@@ -158,29 +182,25 @@ public class Turtle {
 	/**
 	 * Clears the canvas, and resets params to their default.
 	 *
-	 * Resets speed, scale, color, thickness. Centers the turtle and
+	 * Resets speed, color, thickness. Centers the turtle and
 	 * points it to the right.
 	 */
-	public void clear() {
-		synchronized (this) {
-			x = width/2;
-			y = width/2;
-			
-			endX = x;
-			endY = y;
-			
-			theta = 0.0;
-			
-			scale = 50.0;
-			
-			speed = 100.0;
-			
-			color = Color.black;
-			lineStroke = new BasicStroke(1);
-		}
+	public static void clear() {
+        init();
+        
+        x = imageWidth/2;
+        y = imageHeight/2;
+        
+        endX = x;
+        endY = y;
+        
+        theta = 0.0;
+        speed = 100.0;
+        
+        color = Color.black;
+        lineStroke = new BasicStroke(1);
 		
 		clearBase();
-		
 		updateScreenWrapper();
 	}
 	
@@ -195,24 +215,18 @@ public class Turtle {
 	 *
 	 * The turtle always moves when drawing lines.
 	 *
-	 * @param distance The distance in inches.
-	 * @see #setScale
+	 * @param distance The distance in pixels.
 	 * @see #setSpeed
 	 * @see #setColor
 	 * @see #setThickness
 	 */
-	public void draw(double distance) {
-		
-		double totalDelay;
-		
-		synchronized (this) {
-			distance *= scale;
-			totalDelay = distance / speed;
-		}
-		
+	public static void draw(double distance) {
+        init();
+        
+		double totalDelay = distance / speed;
 		moveSlowly(totalDelay, new LineUpdater(distance));
 		
-		synchronized (this) {
+		synchronized (lock) {
 			endX = x + distance * Math.cos(theta);
 			endY = y + distance * Math.sin(theta);
 			
@@ -232,25 +246,22 @@ public class Turtle {
 	 * speed is finite the turtle will move along the line in the same manner
 	 * as draw.
 	 *
-	 * @param distance The distance in inches.
-	 * @see #setScale
+	 * @param distance The distance in pixels.
 	 * @see #setSpeed
 	 */
-	public void move(double distance) {
-		
+	public static void move(double distance) {
+        init();
+        
 		double totalDelay;
 		double startX, startY;
 		
-		synchronized (this) {
-			distance *= scale;
-			totalDelay = distance / speed;
-			startX = x;
-			startY = y;
-		}
+        totalDelay = distance / speed;
+        startX = x;
+        startY = y;
 		
 		moveSlowly(totalDelay, new MoveUpdater(distance));
 		
-		synchronized (this) {
+		synchronized (lock) {
 			x = startX + distance * Math.cos(theta);
 			y = startY + distance * Math.sin(theta);
 			
@@ -269,11 +280,11 @@ public class Turtle {
 	 * @param _x X coord in pixels.
 	 * @param _y Y coord in pixels.
 	 * */
-	public void jump(double _x, double _y) {
-		synchronized (this) {
-			endX = x = _x;
-			endY = y = _y;
-		}
+	public static void jump(double _x, double _y) {
+        init();
+        
+        endX = x = _x;
+        endY = y = _y;
 		
 		updateScreenWrapper();
 	}
@@ -286,11 +297,10 @@ public class Turtle {
 	 * @param dtheta Degrees left to turn.
 	 * @see #turnRad
 	 */
-	public void turn(double dtheta) {
-		synchronized (this) {
-			theta += dtheta / 180.0 * Math.PI;
-		}
-		
+	public static void turn(double dtheta) {
+        init();
+        
+        theta += dtheta / 180.0 * Math.PI;
 		updateScreenWrapper();
 	}
 	
@@ -302,16 +312,63 @@ public class Turtle {
 	 * @param dtheta Radians left to turn.
 	 * @see #turn
 	 */
-	public void turnRad(double dtheta) {
+	public static void turnRad(double dtheta) {
+        init();
 		turn(dtheta * 180.0 / Math.PI);
 	}
 	
+    public static double getAngle() {
+        return theta;
+    }
+    
+    public static void setAngle(double _theta) {
+        theta = _theta;
+    }
+    
+    public static double getX() { return x; }
+    public static double getY() { return y; }
+    
+    public static void setX(double _x) {
+        x = _x;
+        ensureAround((int)x, (int)y);
+    }
+    public static void setY(double _y) {
+        y = _y;
+        ensureAround((int)x, (int)y);
+    }
+    
+    private static class Mark {
+        double x, y, theta;
+        Mark(double _x, double _y, double _theta) {
+            this.x = _x;
+            this.y = _y;
+            this.theta = _theta;
+        }
+    }
+    private static LinkedList<Mark> marks = new LinkedList<Mark>();
+    
+    public static void mark() {
+        marks.push(new Mark(x, y, theta));
+    }
+    
+    public static void reset() {
+        if (marks.size() == 0) {
+            throw new IllegalStateException("No marks");
+        }
+        Mark mark = marks.pop();
+        x = mark.x;
+        y = mark.y;
+        theta = mark.theta;
+        ensureAround((int)x, (int)y);
+    }
+    
 	/**
 	 * Pause for `millis` milliseconds.
 	 *
 	 * @param millis Milliseconds to pause.
 	 */
-	public void pause(int millis) {
+	public static void pause(int millis) {
+        init();
 		try {
 			Thread.sleep(millis);
 		} catch (InterruptedException ie) {
@@ -321,23 +378,27 @@ public class Turtle {
 	
 	// -------------------------------------------------------------
 	
-	private void fixLine()
-	{
+	private static void fixLine() {
 		draw(new LinePicture());
 	}
 	
-	private void clearBase() {
+	private static void clearBase() {
 		draw(new ClearPicture());
 	}
 	
-	private void draw(final Picture pic) {
+	private static void draw(final Picture pic) {
 		SwingUtilities.invokeLater(new Runnable() {
 		public void run() {
-			pic.draw(baseGraphics);
+            Graphics2D g = baseGraphics;
+            
+			AffineTransform saveT = g.getTransform();
+			g.translate(-minX, -minY);
+			pic.draw(g);
+			g.setTransform(saveT);
 		}});
 	}
 	
-	private void moveSlowly(double time, Updater updater) {
+	private static void moveSlowly(double time, Updater updater) {
 		double startTime = System.currentTimeMillis() / 1000.0;
 		
 		for (;;) {
@@ -363,14 +424,19 @@ public class Turtle {
 	
 	// -------------------------------------------------------------
 	
-	private void drawActiveLine() {
-		synchronized (this) {
-			new LinePicture().draw(activeGraphics);
+	private static void drawActiveLine() {
+		synchronized (lock) {
+            Graphics2D g = activeGraphics;
+            
+			AffineTransform saveT = g.getTransform();
+			g.translate(-shiftX, -shiftY);
+			new LinePicture().draw(g);
+			g.setTransform(saveT);
 		}
 	}
 	
-	private void drawTurtle() {
-		synchronized (this) {
+	private static void drawTurtle() {
+		synchronized (lock) {
 			Graphics2D g = activeGraphics;
 			
 			g.setColor(color);
@@ -378,7 +444,7 @@ public class Turtle {
 			
 			AffineTransform saveT = g.getTransform();
 			
-			g.translate(endX, endY);
+			g.translate(endX-shiftX, endY-shiftY);
 			g.rotate(theta);
 			
 			g.drawLine( -5,  0, 5, 0 );
@@ -389,21 +455,23 @@ public class Turtle {
 		}
 	}
 	
-	private void updateScreenWrapper() {
+	private static void updateScreenWrapper() {
 		SwingUtilities.invokeLater(new Runnable() {
 		public void run() {
 			updateScreen();
 		}});
 	}
 	
-	private void updateScreen() {
+	private static void updateScreen() {
 		makeImage();
 		if (activeGraphics == null || baseGraphics == null) {
 			return;
 		}
 		
-		synchronized (this) {
-			activeGraphics.drawImage(baseImage, 0, 0, null);
+		synchronized (lock) {
+            activeGraphics.setColor(Color.white);
+            activeGraphics.fillRect(0, 0, imageWidth, imageHeight);
+			activeGraphics.drawImage(baseImage, minX-shiftX, minY-shiftY, null);
 			
 			drawActiveLine();
 			drawTurtle();
@@ -412,13 +480,13 @@ public class Turtle {
 		imageLabel.repaint();
 	}
 	
-	private void makeImage() {
+	private static void makeImage() {
 		if (activeGraphics != null && baseGraphics != null) {
 			return;
 		}
 		
-		activeImage = window.createImage(width, height);
-		baseImage   = window.createImage(width, height);
+		activeImage = window.createImage(imageWidth, imageHeight);
+		baseImage   = window.createImage(imageWidth, imageHeight);
 		
 		if (activeImage != null)
 			activeGraphics = (Graphics2D) activeImage.getGraphics();
@@ -433,12 +501,11 @@ public class Turtle {
 	
 	// -----------------------------------------------------------------
 	
-	interface Picture {
+	static interface Picture {
 		public void draw(Graphics2D g);
 	}
 	
-	class LinePicture implements Picture {
-		
+	static class LinePicture implements Picture {
 		int x1;
 		int y1;
 		int x2;
@@ -453,8 +520,8 @@ public class Turtle {
 			x2 = (int) Math.round(endX);
 			y2 = (int) Math.round(endY);
 			
-			color  = Turtle.this.color;
-			stroke = Turtle.this.lineStroke;
+			color  = Turtle.color;
+			stroke = Turtle.lineStroke;
 		}
 		
 		public void draw(Graphics2D g) {
@@ -465,26 +532,24 @@ public class Turtle {
 		}
 	}
 	
-	class ClearPicture implements Picture {
-		
+	static class ClearPicture implements Picture {
 		Color color;
 		
 		ClearPicture() {
-			color = Turtle.this.backgroundColor;
+			color = Turtle.backgroundColor;
 		}
 		
 		public void draw(Graphics2D g) {
 			g.setColor(color);
-			g.fillRect(0, 0, width, height);
+			g.fillRect(0, 0, imageWidth, imageHeight);
 		}
 	}
 	
-	interface Updater {
+	static interface Updater {
 		public void update(double progress);
 	}
 	
-	class LineUpdater implements Updater {
-		
+	static class LineUpdater implements Updater {
 		double distance;
 		
 		LineUpdater(double _distance) {
@@ -494,17 +559,18 @@ public class Turtle {
 		public void update(double progress) {
 			double partDistance = progress * distance;
 			
-			synchronized (Turtle.this) {
+			synchronized (lock) {
 				endX = x + partDistance * Math.cos(theta);
 				endY = y + partDistance * Math.sin(theta);
+                
+                ensureAround((int)endX, (int)endY);
 			}
 			
 			updateScreenWrapper();
 		}
 	}
 	
-	class MoveUpdater implements Updater {
-		
+	static class MoveUpdater implements Updater {
 		double distance;
 		double startX;
 		double startY;
@@ -512,7 +578,7 @@ public class Turtle {
 		MoveUpdater(double _distance) {
 			this.distance = _distance;
 			
-			synchronized (Turtle.this) {
+			synchronized (lock) {
 				startX = x;
 				startY = y;
 			}
@@ -521,12 +587,14 @@ public class Turtle {
 		public void update(double progress) {
 			double partDistance = progress * distance;
 			
-			synchronized (Turtle.this) {
+			synchronized (lock) {
 				endX = startX + partDistance * Math.cos(theta);
 				endY = startY + partDistance * Math.sin(theta);
 				
 				x = endX;
 				y = endY;
+                
+                ensureAround((int)endX, (int)endY);
 			}
 			
 			updateScreenWrapper();
@@ -534,7 +602,6 @@ public class Turtle {
 	}
 	
 	static class DummyIcon implements Icon {
-		
 		int width;
 		int height;
 		
@@ -543,17 +610,10 @@ public class Turtle {
 			this.height = _height;
 		}
 		
-		public void paintIcon(Component comp, Graphics g, int w, int h) {
-			// Do nothing
-		}
+		public void paintIcon(Component comp, Graphics g, int w, int h) { }
 		
-	    public int getIconWidth() {
-			return width;
-		}
-		
-	    public int getIconHeight() {
-			return height;
-		}
-		
+	    public int getIconWidth() { return width; }
+	    public int getIconHeight() { return height; }
 	}
 }
+
